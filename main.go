@@ -1,24 +1,46 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
-/*
-Vamos a crear un endpoint llamado /saludo. Con una pequeña estructura con nombre y apellido que al pegarle deberá responder en texto “Hola + nombre + apellido”
+type Product struct {
+	Id          int     `json:"id"`
+	Name        string  `json:"name"`
+	Quantity    int     `json:"quantity"`
+	CodeValue   string  `json:"code_value"`
+	IsPublished bool    `json:"is_published"`
+	Expiration  string  `json:"expiration"`
+	Price       float64 `json:"price"`
+}
 
-El endpoint deberá ser de método POST
-Se deberá usar el package JSON para resolver el ejercicio
-La respuesta deberá seguir esta estructura: “Hola Andrea Rivas”
-La estructura deberá ser como esta:
+var products []Product
 
-	{
-			“nombre”: “Andrea”,
-			“apellido”: “Rivas”
+func populate_products(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return errors.New("Could not open file")
 	}
-*/
+	fileContent, err := ioutil.ReadAll(file)
+	if err != nil {
+		fmt.Println("Error reading file:", err)
+		return errors.New("Could not read file")
+	}
+	defer file.Close()
+	unmarshall_err := json.Unmarshal([]byte(fileContent), &products)
+	if unmarshall_err != nil {
+		fmt.Println("Error unmarshalling JSON:", err)
+		return unmarshall_err
+	}
+	return nil
+}
 
 type Persona struct {
 	Nombre   string `json:"Nombre"`
@@ -27,6 +49,7 @@ type Persona struct {
 
 func main() {
 	router := gin.Default()
+	populate_products("products.json")
 
 	router.GET("/ping", func(c *gin.Context) {
 		c.String(200, "pong")
@@ -45,5 +68,68 @@ func main() {
 		fmt.Println("Ejecucion exitosa")
 
 	})
+
+	//puedo definir endpoints agrupados
+	grupo := router.Group("/perfil")
+	grupo.GET("/foto")
+	grupo.GET("/info")
+
+	var empleados = map[string]string{
+		"1": "pepito",
+		"2": "jaimito",
+	}
+
+	router.GET("empleados/:id", func(c *gin.Context) {
+		empleado, ok := empleados[c.Param("id")]
+		nombre := c.Query("nombre")
+		fmt.Println("Id param received: ", c.Param("id"))
+		if ok && nombre == empleado {
+			c.String(200, "Nombre: %s, ID: %s", empleado, c.Param("id"))
+		} else {
+			c.String(404, "No se encontro el empleado, por favor dar su nombre por query param")
+		}
+	})
+
+	router.GET("products", func(c *gin.Context) {
+		c.JSON(200, products)
+
+	})
+
+	router.GET("products/:id", func(c *gin.Context) {
+		for _, product := range products {
+			param_id, err := strconv.Atoi(c.Param("id"))
+			if err != nil {
+				c.String(404, "Product not found")
+				return
+
+			}
+			if product.Id == param_id {
+				c.JSON(200, product)
+				return
+			}
+
+		}
+		c.String(404, "Product not found")
+
+	})
+
+	router.GET("products/withPriceGreaterThan", func(c *gin.Context) {
+		var products_with_desired_price []Product
+		for _, product := range products {
+			min_price, err := strconv.ParseFloat(c.Query("min_price"), 64)
+
+			if err != nil {
+				c.String(404, "Please provide a valid price")
+				return
+			}
+
+			if product.Price > min_price {
+				products_with_desired_price = append(products_with_desired_price, product)
+			}
+
+		}
+		c.JSON(200, products_with_desired_price)
+	})
+
 	router.Run(":8081")
 }
