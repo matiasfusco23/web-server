@@ -2,120 +2,145 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
-
+	"server/internal/product"
+	"server/internal/domain"
 	"github.com/gin-gonic/gin"
 )
 
-type Product struct {
-	Id          int     `json:"id"`
-	Name        string  `json:"name"`
-	Quantity    int     `json:"quantity"`
-	CodeValue   string  `json:"code_value"`
-	IsPublished bool    `json:"is_published"`
-	Expiration  string  `json:"expiration"`
-	Price       float64 `json:"price"`
+// Una estructura que representa un router
+type ProductRouter struct {
+	// grupo al que pertenece este conjunto de urls
+	productGroup *gin.RouterGroup
+	// el service de productos
+	service product.ProductService
 }
 
-type ProductCreation struct {
-	Name        string  `json:"name"`
-	Quantity    int     `json:"quantity"`
-	CodeValue   string  `json:"code_value"`
-	IsPublished bool    `json:"is_published"`
-	Expiration  string  `json:"expiration"`
-	Price       float64 `json:"price"`
+// constructor del router de productos
+func NewProductRouter(g *gin.RouterGroup) ProductRouter {
+	// un slice que se rellena con una llamada al metodo util de carga de json
+	slice := PopulateProducts("../../products.json")
+	// creo un repo y le paso el slice
+	repo := product.NewProductRepository(slice)
+	// creo el service y le paso el repo que cree
+	serv := product.NewProductService(repo)
+	// creo un router y le paso el grupo, el service y el repo
+	return ProductRouter{g, serv}
 }
 
-var products []Product
 
-func PopulateProducts(filename string) error {
+func PopulateProducts(filename string) []domain.Product {
+	var products [] domain.Product
 	file, err := os.Open(filename)
-	if err != nil {
-		return errors.New("Could not open file")
-	}
+	/*if err != nil {
+		return nil,errors.New("Could not open file")
+	}*/
 	fileContent, err := ioutil.ReadAll(file)
-	if err != nil {
+	/*if err != nil {
 		fmt.Println("Error reading file:", err)
-		return errors.New("Could not read file")
-	}
+		return nil,errors.New("Could not read file")
+	}*/
 	defer file.Close()
 	unmarshall_err := json.Unmarshal([]byte(fileContent), &products)
-	if unmarshall_err != nil {
+	/*if unmarshall_err != nil {
 		fmt.Println("Error unmarshalling JSON:", err)
-		return unmarshall_err
+		return nil,unmarshall_err
+	}*/
+
+	if err != nil && unmarshall_err != nil {
+		fmt.Println(err)
+		fmt.Println(unmarshall_err)
+		return products
 	}
-	return nil
+	return products
 }
 
-type Persona struct {
-	Nombre   string `json:"Nombre"`
-	Apellido string `json:"Apellido"`
+
+
+// conjunto de rutas de URL
+func (r *ProductRouter) ProductRoutes() {
+	r.productGroup.GET("/ping", r.Ping())
+
+	r.productGroup.GET("/", r.GetAllProducts())
+
+	r.productGroup.GET("/:id", r.GetProductById())
+
+	r.productGroup.GET("/withPriceGreaterThan", r.GetProductsWithPriceGreaterThan())
+
+	r.productGroup.POST("/", r.CreateProduct())
 }
 
-func Ping(c *gin.Context) {
-	c.String(200, "pong")
+func (r *ProductRouter) Ping() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.String(200, "pong")
+	}
 }
-func GetAllProducts(c *gin.Context) {
-	c.JSON(200, products)
 
+func (r *ProductRouter) GetAllProducts() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		data := r.service.GetAllProducts()
+		ctx.JSON(http.StatusOK, data)
+	}
 }
-func GetProductById(c *gin.Context) {
-	for _, product := range products {
-		param_id, err := strconv.Atoi(c.Param("id"))
+
+func (r *ProductRouter) GetProductById() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		id, err := strconv.Atoi(ctx.Param("id"))
+
 		if err != nil {
-			c.String(404, "Product not found")
-			return
-
-		}
-		if product.Id == param_id {
-			c.JSON(200, product)
+			fmt.Println(err)
+			ctx.String(500, "Invalid ID")
 			return
 		}
 
+		data, service_err := r.service.GetById(id)
+
+		if service_err != nil {
+			ctx.String(400, service_err.Error())
+		}
+
+		ctx.JSON(http.StatusOK, data)
 	}
-	c.String(404, "Product not found")
-
 }
 
-func GetProductsWithPriceGreaterThan(c *gin.Context) {
-	var products_with_desired_price []Product
-	for _, product := range products {
-		min_price, err := strconv.ParseFloat(c.Query("min_price"), 64)
+func (r *ProductRouter) GetProductsWithPriceGreaterThan() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		min_price, err := strconv.ParseFloat(ctx.Query("min_price"), 64)
 
 		if err != nil {
-			c.String(404, "Please provide a valid price")
+			fmt.Println(err)
+			ctx.String(500, "Invalid min price")
 			return
 		}
 
-		if product.Price > min_price {
-			products_with_desired_price = append(products_with_desired_price, product)
+		data, service_err := r.service.GetProductsWithPriceGreaterThan(min_price)
+
+		if service_err != nil {
+			ctx.String(400, service_err.Error())
 		}
 
+		ctx.JSON(http.StatusOK, data)
 	}
-	c.JSON(200, products_with_desired_price)
 }
 
-func CreateProduct(c *gin.Context) {
-	var request ProductCreation
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+func (r *ProductRouter) CreateProduct() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+	var request product.ProductCreation
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	lastIndex := len(products) - 1
-	lastProductId := products[lastIndex].Id
-	//TODO:
-	/*
-		Ningún dato puede estar vacío, exceptuando is_published (vacío indica un valor false).
-		El campo code_value debe ser único para cada producto.
-		La fecha de vencimiento debe tener el formato: XX/XX/XXXX, además debemos verificar que día, mes y año sean valores válidos.
-	*/
 
-	newProduct := Product{lastProductId + 1, request.Name, request.Quantity, request.CodeValue, request.IsPublished, request.Expiration, request.Price}
-	products = append(products, newProduct)
-	c.String(200, "Product added!")
+		service_err := r.service.CreateProduct(request)
+
+		if service_err != nil {
+			ctx.String(400, service_err.Error())
+		}
+
+		ctx.String(http.StatusOK, "Product added!")
+	}
 }

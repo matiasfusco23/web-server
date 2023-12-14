@@ -5,17 +5,15 @@ import "github.com/gin-gonic/gin"
 // import "server/cmd/handlers/product"
 import "server/cmd/server/handlers"
 func main() {
-	router := gin.Default()
-	handlers.PopulateProducts("products.json")
-	router.GET("/ping", handlers.Ping)
+	server := gin.Default()
+	// creo un grupo para productos
+	productsGroup := server.Group("/products")
+	// llamo a la creacion de un router.
+	productRouter := handlers.NewProductRouter(productsGroup)
 
-	router.GET("products", handlers.GetAllProducts)
+	// ejecuto el metodo que crea las rutas para que esten registradas
+	productRouter.ProductRoutes()
 
-	router.GET("products/:id", handlers.GetProductById)
-
-	router.GET("products/withPriceGreaterThan", handlers.GetProductsWithPriceGreaterThan)
-
-	router.POST("products/", handlers.CreateProduct)
-
-	router.Run(":8081")
+	// corro mi server
+	server.Run(":8081")
 }
